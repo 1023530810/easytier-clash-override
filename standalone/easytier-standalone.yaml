@@ -1,0 +1,37 @@
+proxies:
+  - name: Proxy-EasyTier
+    type: socks5
+    server: YOUR_VPS_IP
+    port: 15555          # ← VPS 上 EasyTier 的 SOCKS5 端口
+    udp: true
+
+  # 你的翻墙代理（示例，替换成你自己的）
+  # - name: 我的代理
+  #   type: vmess
+  #   server: your-server.com
+  #   port: 443
+  #   uuid: your-uuid
+  #   alterId: 0
+  #   cipher: auto
+
+proxy-groups:
+  - name: 🦊 EasyTier内网
+    type: select
+    proxies:
+      - Proxy-EasyTier
+
+  - name: 🚀 节点选择
+    type: select
+    proxies:
+      - DIRECT
+      # - 我的代理
+
+  - name: 🎯 直连
+    type: select
+    proxies:
+      - DIRECT
+
+rules:
+  - IP-CIDR,10.126.126.0/24,🦊 EasyTier内网,no-resolve
+  - GEOIP,CN,🎯 直连
+  - MATCH,🚀 节点选择

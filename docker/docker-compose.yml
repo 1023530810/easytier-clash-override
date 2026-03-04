@@ -1,0 +1,59 @@
+services:
+  # ========== EasyTier 组网节点 ==========
+  easytier:
+    image: easytier/easytier:latest
+    container_name: easytier
+    hostname: vps-gateway
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ./data:/root
+      - /etc/machine-id:/etc/machine-id:ro
+    environment:
+      - TZ=Asia/Shanghai
+    env_file:
+      - .env
+    depends_on:
+      - easytier-web
+    command: >
+      -d
+      --socks5 15555
+      --hostname vps-gateway
+      -w udp://127.0.0.1:22020/${ET_WEB_USERNAME}
+      --machine-id vps-gateway
+      -p tcp://8.148.29.206:11010
+      -p tcp://160.202.238.39:20665
+      -p tcp://c.oee.icu:60006
+      -p tcp://et.gbc.moe:11010
+      -p tcp://public2.easytier.cn:54321
+      -p tcp://sh.vomiku.com:7910
+      -p tcp://turn.nmg.629957.xyz:11010
+      -p tcp://47.96.28.190:9994
+      -p tcp://211.159.174.121:11010
+      -p tcp://weior.top:11010
+      -p tcp://106.15.202.147:11010
+      -p tcp://ros.scpsl.com.cn:11010
+      -p tcp://103.184.47.79:11010
+      -p tcp://et.lidonglong.top:11010
+      -p tcp://boi.de5.net:11010
+
+  # ========== EasyTier Web 控制台（自建） ==========
+  easytier-web:
+    image: easytier/easytier:latest
+    container_name: easytier-web
+    restart: unless-stopped
+    entrypoint: easytier-web-embed
+    command: >
+      --api-host http://YOUR_VPS_IP:11211
+    ports:
+      - "11211:11211"       # Web 管理界面（HTTP）
+      - "22020:22020/udp"   # 配置下发服务（供 easytier-core 连接）
+    volumes:
+      - ./web-data:/app     # 持久化数据（账号、配置等）
+    environment:
+      - TZ=Asia/Shanghai

@@ -1,0 +1,8 @@
+.DS_Store
+*.log
+.idea/
+.vscode/
+.servers_state.json
+docker/.env
+docker/data/
+docker/web-data/

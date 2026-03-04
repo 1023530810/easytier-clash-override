@@ -1,0 +1,21 @@
+name: EasyTier 内网分流（VPS 中转）
+desc: |-
+  将 EasyTier 虚拟网段流量通过 VPS 中转访问
+  适用于 Stash (iOS) 客户端
+  手机无需运行 EasyTier
+
+proxies:
+  - name: Proxy-EasyTier
+    type: socks5
+    server: YOUR_VPS_IP
+    port: 15555          # ← VPS 上 EasyTier 的 SOCKS5 端口
+    udp: true
+
+proxy-groups:
+  - name: 🦊 EasyTier内网
+    type: select
+    proxies:
+      - Proxy-EasyTier
+
+rules:
+  - IP-CIDR,10.126.126.0/24,🦊 EasyTier内网,no-resolve

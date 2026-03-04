@@ -57,3 +57,18 @@ services:
       - ./web-data:/app     # 持久化数据（账号、配置等）
     environment:
       - TZ=Asia/Shanghai
+
+  # ========== nginx 反向代理（HTTP 服务直通） ==========
+  # 解决通过 SOCKS5 访问 EasyTier 内网 HTTP 服务卡顿的问题
+  # 手机/电脑直接访问 VPS_IP:端口 即可，无需 Clash 介入
+  easytier-nginx:
+    image: nginx:alpine
+    container_name: easytier-nginx
+    restart: unless-stopped
+    network_mode: host          # 需要访问 EasyTier TUN 接口
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    environment:
+      - TZ=Asia/Shanghai
+    depends_on:
+      - easytier

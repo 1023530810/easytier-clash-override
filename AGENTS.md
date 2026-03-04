@@ -12,7 +12,8 @@ EasyTier + Clash 共存方案。通过 VPS（Docker）运行 EasyTier 并开启 
 
 ```
 ├── docker/                     # VPS Docker 部署（核心）
-│   ├── docker-compose.yml      # EasyTier 节点 + Web Console 编排
+│   ├── docker-compose.yml      # EasyTier 节点 + Web Console + nginx 编排
+│   ├── nginx.conf              # nginx 反向代理配置（HTTP 服务直通）
 │   └── .env.example            # ET_NETWORK_NAME / ET_NETWORK_SECRET / ET_WEB_USERNAME
 ├── stash/                      # iOS Stash 客户端覆写
 │   └── easytier.stoverride     # Stash 数组合并格式，追加到订阅前
@@ -29,6 +30,7 @@ EasyTier + Clash 共存方案。通过 VPS（Docker）运行 EasyTier 并开启 
 | 任务 | 文件 | 说明 |
 |------|------|------|
 | 部署 VPS 节点 | `docker/docker-compose.yml` + `docker/.env` | 修改网络凭据和中继服务器 |
+| 添加 HTTP 服务直通 | `docker/nginx.conf` | 避免 SOCKS5 延迟叠加，直接反向代理内网 HTTP 服务 |
 | 更新中继服务器 | `scripts/fetch_servers.py --update-compose` | 自动替换 compose 中的 `-p` 行 |
 | 添加 iOS 客户端支持 | `stash/easytier.stoverride` | YAML 覆写格式 |
 | 添加 Android 客户端支持 | `flclash/easytier-override.js` | JS `main(config)` 函数 |
@@ -56,6 +58,7 @@ EasyTier + Clash 共存方案。通过 VPS（Docker）运行 EasyTier 并开启 
 - **三套客户端配置并行维护**：stash（YAML 覆写）/ flclash（JS 脚本）/ standalone（完整 YAML），修改网段/端口时三者需同步
 - **docker-compose 中 command 使用 `>` 多行折叠**：`-p` 参数按行排列，`fetch_servers.py --update-compose` 通过正则定位并替换这些行
 - **Web Console 可选部署**：`easytier-web` 服务与 `easytier` 节点通过 `depends_on` 关联，通过 `--machine-id` 固定设备标识
+- **nginx 反向代理可选部署**：`easytier-nginx` 服务解决 SOCKS5 访问 HTTP 服务卡顿问题，端口在 `nginx.conf` 中按需添加
 
 ## COMMANDS
 
@@ -83,3 +86,4 @@ python3 scripts/fetch_servers.py --update-compose  # 自动更新 compose
 - `docker-compose.yml` 中 `network_mode: host` — 容器直接使用宿主网络
 - Web Console 注册后需将用户名填入 `.env` 的 `ET_WEB_USERNAME` 并重启容器
 - `docker-compose.yml` 中 `--api-host` 的 `YOUR_VPS_IP` 需手动替换
+- `docker/nginx.conf` 中的端口和目标 IP 需根据实际 EasyTier 设备调整

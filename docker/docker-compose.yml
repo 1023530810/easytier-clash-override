@@ -26,7 +26,6 @@ services:
       --network-name ${ET_NETWORK_NAME}
       --network-secret ${ET_NETWORK_SECRET}
       --ipv4 10.126.126.1/24
-      -w udp://127.0.0.1:22020/${ET_WEB_USERNAME}
       --machine-id vps-gateway
       -p tcp://8.148.29.206:11010
       -p tcp://160.202.238.39:20665

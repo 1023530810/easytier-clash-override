@@ -33,7 +33,7 @@ EasyTier + Clash 共存方案。通过 VPS（Docker）运行 EasyTier 并开启 
 | 获取 WireGuard 客户端配置 | — | `docker exec -it easytier easytier-cli vpn-portal` |
 | 更新中继服务器 | `scripts/fetch_servers.py --update-compose` | 自动替换 compose 中的 `-p` 行 |
 | 添加 iOS 客户端支持 | `stash/easytier.stoverride` | YAML 覆写格式，WireGuard 代理类型 |
-| 添加 Mac Clash 分流支持 | `flclash/easytier-override-mac.js` | Mac 已原生跑 EasyTier，走 DIRECT 无需 WireGuard |
+| 添加 Mac Clash 分流支持 | `flclash/easytier-override-mac.js` | Mac 无需覆写脚本，只需在 Clash TUN 中排除 EasyTier 网段 |
 | 无订阅独立使用 | `standalone/easytier-standalone.yaml` | 需手动填入 WireGuard 密钥 |
 
 ## CONVENTIONS
@@ -52,10 +52,12 @@ EasyTier + Clash 共存方案。通过 VPS（Docker）运行 EasyTier 并开启 
 - **不要在手机上运行 EasyTier**：iOS 后台挂起 + VPN 隧道干扰组网，方案依赖 VPS 中转
 - **WireGuard 通过 Clash 代理时不支持 ICMP**：只能用 SSH/curl 等 TCP 工具测试连通性
 - **测速会失败**：WireGuard VPN Portal 只能访问虚拟网络，公网 URL 会超时，这是正常现象
+- **Mac 不要用 DIRECT 规则分流 EasyTier**：Clash TUN 的 `auto-route` 会劫持所有流量，DIRECT 规则走物理网卡无法到达虚拟网段，必须用 `route-exclude-address` 排除
+- **Mac 不要用 WireGuard 代理访问 EasyTier 网段**：流量绕 VPS 中转会导致连接超时，Mac 已有原生 EasyTier TUN 直连
 
 ## UNIQUE STYLES
 
-- **Mac 使用 DIRECT 而非 WireGuard**：Mac 已原生接入 EasyTier，Clash 覆写只需加 DIRECT 规则，不占用 VPN Portal IP
+- **Mac 使用 TUN 排除而非 DIRECT 规则**：Mac 已原生接入 EasyTier，Clash TUN 必须通过 `route-exclude-address` 排除 `10.126.126.0/24`，让 EasyTier TUN 直接处理，DIRECT 规则无效
 - **docker-compose 中 command 使用 `>` 多行折叠**：`-p` 参数按行排列，`fetch_servers.py --update-compose` 通过正则定位并替换这些行
 - **Web Console 可选部署**：`easytier-web` 服务与 `easytier` 节点通过 `depends_on` 关联，通过 `--machine-id` 固定设备标识
 

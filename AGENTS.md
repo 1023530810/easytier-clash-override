@@ -1,24 +1,23 @@
 # PROJECT KNOWLEDGE BASE
 
-**Generated:** 2026-03-04
+**Generated:** 2026-03-06
 **Commit:** ef250cd
 **Branch:** main
 
 ## OVERVIEW
 
-EasyTier + Clash 共存方案。通过 VPS（Docker）运行 EasyTier 并开启 SOCKS5 代理，手机端 Clash 客户端通过覆写规则将虚拟网段流量转发至 VPS，解决手机只能开一个 VPN 的限制。
+EasyTier + Clash 共存方案。通过 VPS（Docker）运行 EasyTier 并开启 WireGuard VPN Portal，手机端 Clash 客户端通过覆写规则将虚拟网段流量经由 WireGuard 隧道转发至 VPS，解决手机只能开一个 VPN 的限制。
 
 ## STRUCTURE
 
 ```
 ├── docker/                     # VPS Docker 部署（核心）
-│   ├── docker-compose.yml      # EasyTier 节点 + Web Console + nginx 编排
-│   ├── nginx.conf              # nginx 反向代理配置（HTTP 服务直通）
+│   ├── docker-compose.yml      # EasyTier 节点 + Web Console 编排（含 VPN Portal）
 │   └── .env.example            # ET_NETWORK_NAME / ET_NETWORK_SECRET / ET_WEB_USERNAME
 ├── stash/                      # iOS Stash 客户端覆写
-│   └── easytier.stoverride     # Stash 数组合并格式，追加到订阅前
+│   └── easytier.stoverride     # Stash 数组合并格式，WireGuard 代理类型
 ├── flclash/                    # Android/桌面 FlClash 覆写
-│   └── easytier-override.js    # JS 脚本，修改 config 对象注入代理+规则
+│   └── easytier-override.js    # JS 脚本，注入 WireGuard 代理+规则
 ├── standalone/                 # 无订阅时的完整 Clash 配置
 │   └── easytier-standalone.yaml
 └── scripts/                    # 工具脚本
@@ -29,12 +28,12 @@ EasyTier + Clash 共存方案。通过 VPS（Docker）运行 EasyTier 并开启 
 
 | 任务 | 文件 | 说明 |
 |------|------|------|
-| 部署 VPS 节点 | `docker/docker-compose.yml` + `docker/.env` | 修改网络凭据和中继服务器 |
-| 添加 HTTP 服务直通 | `docker/nginx.conf` | 避免 SOCKS5 延迟叠加，直接反向代理内网 HTTP 服务 |
+| 部署 VPS 节点 | `docker/docker-compose.yml` + `docker/.env` | 修改网络凭据、`--vpn-portal` 参数和中继服务器 |
+| 获取 WireGuard 客户端配置 | — | `docker exec -it easytier easytier-cli vpn-portal` |
 | 更新中继服务器 | `scripts/fetch_servers.py --update-compose` | 自动替换 compose 中的 `-p` 行 |
-| 添加 iOS 客户端支持 | `stash/easytier.stoverride` | YAML 覆写格式 |
-| 添加 Android 客户端支持 | `flclash/easytier-override.js` | JS `main(config)` 函数 |
-| 无订阅独立使用 | `standalone/easytier-standalone.yaml` | 需手动添加代理节点 |
+| 添加 iOS 客户端支持 | `stash/easytier.stoverride` | YAML 覆写格式，WireGuard 代理类型 |
+| 添加 Android 客户端支持 | `flclash/easytier-override.js` | JS `main(config)` 函数，WireGuard 代理类型 |
+| 无订阅独立使用 | `standalone/easytier-standalone.yaml` | 需手动填入 WireGuard 密钥 |
 
 ## CONVENTIONS
 
@@ -48,17 +47,16 @@ EasyTier + Clash 共存方案。通过 VPS（Docker）运行 EasyTier 并开启 
 ## ANTI-PATTERNS（本项目禁止）
 
 - **不要拦截局域网网段**：规则只拦截 `10.126.126.0/24`，禁止拦截 `192.168.0.0/16` 等
-- **不要暴露 SOCKS5 端口**：EasyTier SOCKS5 无认证，必须用防火墙限制
+- **确保 VPS 防火墙开放 UDP 11013**：WireGuard VPN Portal 端口，未开放则客户端无法连接
 - **不要在手机上运行 EasyTier**：iOS 后台挂起 + VPN 隧道干扰组网，方案依赖 VPS 中转
-- **SOCKS5 不能 ping**：ICMP 不可用，只能用 TCP 工具（SSH/curl）测试连通性
-- **测速会失败**：SOCKS5 只能访问虚拟网络，公网 URL 会超时，这是正常现象
+- **WireGuard 通过 Clash 代理时不支持 ICMP**：只能用 SSH/curl 等 TCP 工具测试连通性
+- **测速会失败**：WireGuard VPN Portal 只能访问虚拟网络，公网 URL 会超时，这是正常现象
 
 ## UNIQUE STYLES
 
 - **三套客户端配置并行维护**：stash（YAML 覆写）/ flclash（JS 脚本）/ standalone（完整 YAML），修改网段/端口时三者需同步
 - **docker-compose 中 command 使用 `>` 多行折叠**：`-p` 参数按行排列，`fetch_servers.py --update-compose` 通过正则定位并替换这些行
 - **Web Console 可选部署**：`easytier-web` 服务与 `easytier` 节点通过 `depends_on` 关联，通过 `--machine-id` 固定设备标识
-- **nginx 反向代理可选部署**：`easytier-nginx` 服务解决 SOCKS5 访问 HTTP 服务卡顿问题，端口在 `nginx.conf` 中按需添加
 
 ## COMMANDS
 
@@ -71,6 +69,9 @@ docker compose logs -f
 # 容器内验证组网
 docker exec -it easytier easytier-cli peer
 docker exec -it easytier easytier-cli route
+
+# 获取 WireGuard 客户端配置
+docker exec -it easytier easytier-cli vpn-portal
 
 # 抓取公共服务器
 python3 scripts/fetch_servers.py              # 完整报告
@@ -86,4 +87,4 @@ python3 scripts/fetch_servers.py --update-compose  # 自动更新 compose
 - `docker-compose.yml` 中 `network_mode: host` — 容器直接使用宿主网络
 - Web Console 注册后需将用户名填入 `.env` 的 `ET_WEB_USERNAME` 并重启容器
 - `docker-compose.yml` 中 `--api-host` 的 `YOUR_VPS_IP` 需手动替换
-- `docker/nginx.conf` 中的端口和目标 IP 需根据实际 EasyTier 设备调整
+- `docker-compose.yml` 中 `--vpn-portal` 的子网 10.14.14.0/24 是 WireGuard 隧道子网，与 EasyTier 虚拟网段 10.126.126.0/24 无关

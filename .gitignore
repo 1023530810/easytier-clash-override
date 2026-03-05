@@ -6,3 +6,6 @@
 docker/.env
 docker/data/
 docker/web-data/
+
+# 填写了真实凭据的私人配置（永远不提交）
+private/

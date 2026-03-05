@@ -1,15 +1,22 @@
-name: EasyTier 内网分流（VPS 中转）
+name: EasyTier 内网分流（WireGuard VPN Portal）
 desc: |-
-  将 EasyTier 虚拟网段流量通过 VPS 中转访问
-  适用于 Stash (iOS) 客户端
+  将 EasyTier 虚拟网段流量通过 WireGuard 隧道转发到 VPS
+  适用于 Stash (iOS) 客户端 — 此配置使用 IP 10.14.14.1
   手机无需运行 EasyTier
+  # 获取密钥：docker exec -it easytier easytier-cli vpn-portal
+  # 每台设备需使用不同 IP，如 10.14.14.1 / .2 / .3
 
 proxies:
   - name: Proxy-EasyTier
-    type: socks5
+    type: wireguard
     server: YOUR_VPS_IP
-    port: 15555          # ← VPS 上 EasyTier 的 SOCKS5 端口
+    port: 11013
+    ip: 10.14.14.1
+    private-key: YOUR_PRIVATE_KEY
+    public-key: YOUR_PUBLIC_KEY
     udp: true
+    mtu: 1380
+    persistent-keepalive: 25
 
 proxy-groups:
   - name: 🦊 EasyTier内网

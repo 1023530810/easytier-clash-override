@@ -1,9 +1,16 @@
 proxies:
   - name: Proxy-EasyTier
-    type: socks5
+    type: wireguard
     server: YOUR_VPS_IP
-    port: 15555          # ← VPS 上 EasyTier 的 SOCKS5 端口
+    port: 11013
+    ip: 10.14.14.3          # ← 第三台设备（standalone 配置）
+    private-key: YOUR_PRIVATE_KEY
+    public-key: YOUR_PUBLIC_KEY
     udp: true
+    mtu: 1380
+    persistent-keepalive: 25
+    # 获取密钥：docker exec -it easytier easytier-cli vpn-portal
+    # 每台设备需使用不同 IP，如 10.14.14.1 / .2 / .3
 
   # 你的翻墙代理（示例，替换成你自己的）
   # - name: 我的代理

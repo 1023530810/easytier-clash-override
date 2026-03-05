@@ -1,0 +1,8 @@
+=== QA Evidence: task-7-agents-updated ===
+Date: Fri Mar  6 01:07:08 CST 2026
+
+grep -c 'vpn-portal' AGENTS.md:
+4
+
+grep -c 'WireGuard' AGENTS.md:
+12

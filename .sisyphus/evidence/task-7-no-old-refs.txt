@@ -1,0 +1,10 @@
+=== QA Evidence: task-7-no-old-refs ===
+Date: Fri Mar  6 01:07:19 CST 2026
+
+grep -c 'nginx.conf' AGENTS.md:
+0
+0
+
+grep -c 'socks5-http-latency' AGENTS.md:
+0
+0

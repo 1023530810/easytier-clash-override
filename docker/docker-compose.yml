@@ -21,9 +21,26 @@ services:
     depends_on:
       - easytier-web
     command: >
-      -w udp://127.0.0.1:22020/${ET_WEB_USERNAME}
+      --vpn-portal wg://0.0.0.0:11013/10.14.14.0/24
       --hostname vps-gateway
+      --network-name ${ET_NETWORK_NAME}
+      --network-secret ${ET_NETWORK_SECRET}
+      --ipv4 10.126.126.1/24
       --machine-id vps-gateway
+      -p tcp://8.148.29.206:11010
+      -p tcp://160.202.238.39:20665
+      -p tcp://c.oee.icu:60006
+      -p tcp://et.gbc.moe:11010
+      -p tcp://public2.easytier.cn:54321
+      -p tcp://sh.vomiku.com:7910
+      -p tcp://47.96.28.190:9994
+      -p tcp://211.159.174.121:11010
+      -p tcp://weior.top:11010
+      -p tcp://106.15.202.147:11010
+      -p tcp://ros.scpsl.com.cn:11010
+      -p tcp://103.184.47.79:11010
+      -p tcp://et.lidonglong.top:11010
+      -p tcp://boi.de5.net:11010
 
   # ========== EasyTier Web 控制台（自建） ==========
   easytier-web:

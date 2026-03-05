@@ -1,35 +1,51 @@
-# EasyTier + Clash 共存方案
+# EasyTier + Clash 共存方案（WireGuard VPN Portal）
 
 解决 Android/iOS 手机上**只能开一个 VPN** 的限制，让 EasyTier 组网和 Clash 翻墙同时工作。
 
 ## 问题背景
 
 手机系统（Android/iOS）同一时间只允许一个 VPN 运行。当你同时需要：
+
 - **EasyTier**：虚拟组网，访问内网设备
 - **Clash 系代理**：科学上网
 
-两者无法同时开启 TUN 模式，必须来回切换，非常麻烦。
+两者无法同时开启 TUN 模式，必须来回切换，很麻烦。
 
 ### 为什么不能在手机上同时跑？
 
-经过实际测试，在 iOS 上即使 EasyTier 切换为"无 TUN 模式 + SOCKS5"，也存在两个致命问题：
+经过实际测试，在 iOS 上即使 EasyTier 切换为「无 TUN 模式 + SOCKS5」，也存在两个致命问题：
 
-1. **iOS 后台挂起**：切到后台几秒后 EasyTier 被系统挂起，SOCKS5 端口不再响应
+1. **iOS 后台挂起**：切到后台几秒后 EasyTier 被系统挂起，端口不再响应
 2. **组网被干扰**：Stash 的 VPN 隧道会拦截 EasyTier 自身的组网通信，导致 EasyTier 根本无法加入网络
 
 因此，**手机上不能运行 EasyTier**，需要一台中转设备。
 
-## 解决方案：VPS 中转
+## 为什么选择 WireGuard
+
+这个方案的早期版本用 EasyTier 的 SOCKS5 代理实现中转。SOCKS5 能用，但有一个根本缺陷：**每建立一条 TCP 连接，都要多走一次 SOCKS5 握手，耗时约 520ms**。手机浏览器加载一个页面通常发出 30 个以上的资源请求，握手延迟全部叠加，页面加载白白多出 2-3 秒。
+
+更麻烦的是，SOCKS5 不支持认证，任何知道 VPS IP 和端口的人都能进来，只能靠防火墙白名单勉强保住安全性。
+
+WireGuard 解决了这两个问题：
+
+- **L3 隧道，连接透明传输**：WireGuard 工作在网络层，TCP 连接在隧道中直接传输，HTTP Keep-Alive 天然生效，不需要额外握手
+- **内置加密和密钥认证**：没有对应私钥就无法接入，安全性比 SOCKS5 高一个量级
+
+一句话对比：**SOCKS5 是中介，WireGuard 是专线**。
+
+EasyTier 的 `--vpn-portal` 功能正好实现了这个专线：它在 VPS 上开放一个 WireGuard 入口，Clash 客户端直接用 WireGuard 代理节点接入，所有虚拟网段流量在隧道内透明传输，延迟和体验都接近原生。
+
+## 解决方案架构
 
 ```
 iPhone / Android（Stash / FlClash）
   │
   │  访问 10.126.126.x
-  │  匹配覆写规则 → 走 Proxy-EasyTier
+  │  匹配覆写规则 → 走 Proxy-EasyTier（WireGuard）
   │
   ▼
-VPS（YOUR_VPS_IP:15555）
-  │  EasyTier SOCKS5 代理
+VPS（YOUR_VPS_IP:11013/udp）
+  │  EasyTier WireGuard VPN Portal
   │  Docker 部署，24小时在线
   │
   ▼
@@ -40,8 +56,9 @@ EasyTier 虚拟网络（10.126.126.0/24）
 ```
 
 **核心原理**：
-- VPS 上用 Docker 运行 EasyTier，加入你的虚拟网络，并开启 SOCKS5 代理
-- 手机上的 Clash 客户端通过覆写规则，将虚拟网段流量转发到 VPS 的 SOCKS5
+
+- VPS 上用 Docker 运行 EasyTier，加入你的虚拟网络，并开启 WireGuard VPN Portal
+- 手机上的 Clash 客户端通过覆写规则，将虚拟网段流量走 WireGuard 代理节点到达 VPS
 - 手机**完全不需要安装或运行 EasyTier**
 
 ## VPS 部署（Docker）
@@ -82,13 +99,18 @@ ET_NETWORK_SECRET=你的网络密码
 ```yaml
 command: >
   -d
-  --socks5 15555
+  --vpn-portal wg://0.0.0.0:11013/10.14.14.0/24
   --hostname vps-gateway
   -p tcp://8.148.29.206:11010        # ← 替换为你的中继服务器
   -p tcp://160.202.238.39:20665
 ```
 
-> 💡 可以用 `scripts/fetch_servers.py --raw` 获取最新的公共服务器列表。
+`--vpn-portal` 参数说明：
+
+- `wg://0.0.0.0:11013`：在所有网卡的 UDP 11013 端口开放 WireGuard 入口
+- `/10.14.14.0/24`：为接入客户端分配的 VPN Portal 地址段
+
+> 可以用 `scripts/fetch_servers.py --raw` 获取最新的公共服务器列表。
 
 ### 4. 启动服务
 
@@ -108,6 +130,24 @@ docker exec -it easytier easytier-cli route
 ```
 
 在日志中应该能看到其他节点（如你的 Mac）出现在 peer 列表中。
+
+### 6. 防火墙配置
+
+WireGuard 使用 UDP 协议，需要开放 UDP 11013 端口：
+
+```bash
+# ufw（推荐）
+sudo ufw allow 11013/udp
+
+# 或 iptables
+sudo iptables -A INPUT -p udp --dport 11013 -j ACCEPT
+
+# 持久化 iptables 规则
+sudo apt install iptables-persistent
+sudo netfilter-persistent save
+```
+
+与旧版 SOCKS5 方案不同，WireGuard 内置密钥认证，不需要额外限制来源 IP。没有对应私钥的连接会直接被忽略。
 
 ### Web Console（自建，可选）
 
@@ -129,76 +169,54 @@ docker compose up -d
 
 5. 登录 Web Console，点击设备即可查看虚拟 IP、在线状态、延迟等信息
 
-> 💡 Docker 环境下已通过 `--machine-id` 固定设备标识，重启容器不会丢失配置。
+> Docker 环境下已通过 `--machine-id` 固定设备标识，重启容器不会丢失配置。
 > Web Console 数据持久化在 `docker/web-data/` 目录。
 
-### 6. 安全加固
+## 获取 WireGuard 客户端配置
 
-⚠️ **EasyTier 的 SOCKS5 不支持认证**（无用户名密码），必须用防火墙限制访问。
-
-```bash
-# 只允许特定 IP 访问 SOCKS5 端口（推荐）
-# 替换 YOUR_IP 为你常用的出口 IP
-sudo iptables -A INPUT -p tcp --dport 15555 -s YOUR_IP -j ACCEPT
-sudo iptables -A INPUT -p tcp --dport 15555 -j DROP
-
-# 或者，如果你的 IP 经常变化，至少限制为国内 IP 段
-# 配合 fail2ban 等工具使用
-
-# 持久化 iptables 规则
-sudo apt install iptables-persistent
-sudo netfilter-persistent save
-```
-
-> ⚠️ SOCKS5 无认证意味着任何知道你 VPS IP 和端口的人都能访问你的 EasyTier 虚拟网络。务必配置防火墙！
-
-### 7. HTTP 服务反向代理（可选）
-
-通过 SOCKS5 访问 EasyTier 内网的 HTTP 服务（Web 管理界面等）时，浏览器加载页面的几十个资源都要走完整的 SOCKS5 握手链路，延迟叠加导致**卡到无法使用**。
-
-解决方案：在 VPS 上加一层 nginx 反向代理，手机/电脑直接访问 `http://VPS公网IP:端口`，nginx 通过 EasyTier TUN 接口直连内网设备，连接保持复用。
-
-```
-之前：📱 → Clash SOCKS5 → VPS → SOCKS5穿EasyTier → 内网设备  (每个请求都握手)
-之后：📱 → 直接HTTP → VPS:nginx → keepalive连接 → 内网设备   (连接复用)
-```
-
-1. 编辑 `docker/nginx.conf`，在 `upstream` 和 `server` 块中添加需要代理的端口：
-
-```nginx
-# 添加 upstream
-upstream my_device_8080 {
-    server 10.126.126.X:8080;    # ← 内网设备的虚拟 IP 和端口
-    keepalive 16;
-}
-
-# 添加 server
-server {
-    listen 8080;
-    location / {
-        proxy_pass http://my_device_8080;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection $connection_upgrade;
-        # ... 其他 header 参考已有配置
-    }
-}
-```
-
-2. 重启容器：
+VPS 部署并组网成功后，执行以下命令获取 WireGuard 客户端接入信息：
 
 ```bash
-docker compose up -d
+docker exec -it easytier easytier-cli vpn-portal
 ```
 
-3. 在浏览器直接访问 `http://VPS公网IP:8080`，无需 Clash 介入
+输出示例：
 
-> ⚠️ nginx 代理的端口同样暴露在公网，建议配合防火墙限制访问来源 IP。
+```
+portal_name: wg://0.0.0.0:11013/10.14.14.0/24
+server_public_key: aBcDeFgH...（base64 公钥）
+connected clients: []
+my_client_config:
+[Interface]
+PrivateKey = xYzAbC...（客户端私钥）
+Address = 10.14.14.1/24
+
+[Peer]
+PublicKey = aBcDeFgH...（服务端公钥）
+Endpoint = <your-endpoint>:11013
+AllowedIPs = 10.14.14.0/24, 10.126.126.0/24
+PersistentKeepalive = 25
+```
+
+将上述信息对应填入 Clash 的 WireGuard 代理配置：
+
+| vpn-portal 输出 | Clash 配置字段 |
+|-----------------|----------------|
+| `PrivateKey` | `private-key` |
+| `PublicKey`（Peer 段） | `public-key` |
+| VPS 公网 IP | `server` |
+| `11013` | `port` |
+| `Address` 中的 IP | `ip` |
+
+**每台设备需要使用不同的 `ip`**（如第一台 `10.14.14.1`，第二台 `10.14.14.2`，第三台 `10.14.14.3`），否则会产生 IP 冲突。目前需要手动为每台设备分配不同 IP，填入对应客户端配置文件。
 
 ## 客户端配置
 
-### Stash（iOS）推荐
+三种客户端配置均已预置 WireGuard 代理节点模板，填入从 `easytier-cli vpn-portal` 获取的密钥后即可使用。
+
+### Stash（iOS）
+
+覆写文件默认使用 IP `10.14.14.1`（第一台设备）。
 
 1. 打开 Stash → 设置 → 覆写 → 点击右上角 `+`
 2. 选择「添加配置链接」，输入：
@@ -207,59 +225,45 @@ docker compose up -d
 https://raw.githubusercontent.com/1023530810/easytier-clash-override/main/stash/easytier.stoverride
 ```
 
-3. 确保覆写开关已打开
-4. 重新连接 VPN
+3. 在覆写中将 `YOUR_VPS_IP`、`YOUR_PRIVATE_KEY`、`YOUR_PUBLIC_KEY` 替换为实际值
+4. 确保覆写开关已打开，重新连接 VPN
 
 Stash 的数组合并规则会自动将配置**追加**到你的订阅前面，不会覆盖机场节点。
 
 ### FlClash（Android/桌面）
 
+覆写脚本默认使用 IP `10.14.14.2`（第二台设备）。
+
 1. 复制 `flclash/easytier-override.js` 的内容
-2. 打开 FlClash → 配置页 → 右上角齿轮/脚本图标
-3. 删除默认脚本内容，粘贴复制的脚本
-4. 在 订阅 → 三个点 → 覆写 → 开启覆写开关
-5. 重新连接 VPN
+2. 将脚本中的 `YOUR_VPS_IP`、`YOUR_PRIVATE_KEY`、`YOUR_PUBLIC_KEY` 替换为实际值
+3. 打开 FlClash → 配置页 → 右上角齿轮/脚本图标
+4. 删除默认脚本内容，粘贴修改后的脚本
+5. 在 订阅 → 三个点 → 覆写 → 开启覆写开关
+6. 重新连接 VPN
 
 ### 独立配置（无订阅）
 
-如果你没有机场订阅，直接使用 `standalone/easytier-standalone.yaml` 作为完整配置文件导入 Clash 客户端即可。需要手动添加你的代理节点。
+`standalone/easytier-standalone.yaml` 默认使用 IP `10.14.14.3`（第三台设备）。
 
-## 配置文件说明
-
-```
-├── docker/                          # VPS Docker 部署
-│   ├── docker-compose.yml           # Docker Compose 配置（含 Web Console + nginx）
-│   ├── nginx.conf                   # nginx 反向代理配置（HTTP 服务直通）
-│   ├── .env.example                 # 环境变量模板
-│   ├── data/                        # EasyTier 节点数据
-│   └── web-data/                    # Web Console 持久化数据
-├── stash/                           # iOS Stash 客户端
-│   └── easytier.stoverride          # Stash 覆写文件
-├── flclash/                         # FlClash 客户端（Android/桌面）
-│   └── easytier-override.js         # FlClash JavaScript 覆写脚本
-├── standalone/                      # 通用独立配置
-│   └── easytier-standalone.yaml     # 完整 Clash YAML（无订阅时使用）
-    └── scripts/                         # 工具脚本
-    └── fetch_servers.py             # 公共服务器列表抓取与变更检测
+如果你没有机场订阅，将文件中的三个占位值替换为实际密钥后，直接导入 Clash 客户端即可。需要手动添加你的翻墙代理节点。
 
 ## 自定义修改
 
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `server` | `YOUR_VPS_IP` | VPS 公网 IP，改成你自己的 VPS |
-| `port` | `15555` | VPS 上 EasyTier 的 SOCKS5 端口 |
+| `port` | `11013` | WireGuard UDP 端口 |
 | 规则网段 | `10.126.126.0/24` | EasyTier 虚拟网段，按你的实际网段调整 |
 | `ET_WEB_USERNAME` | （空） | 自建 Web Console 用户名，首次启动后在 `http://VPS:11211` 注册 |
 
-> ⚠️ 只拦截 EasyTier 虚拟网段（如 `10.126.126.0/24`），**不要**拦截 `192.168.0.0/16` 等局域网网段，否则会导致本地网络访问全部失败。
+> 只拦截 EasyTier 虚拟网段（如 `10.126.126.0/24`），**不要**拦截 `192.168.0.0/16` 等局域网网段，否则会导致本地网络访问全部失败。
 
 ## 注意事项
 
-- **测速失败是正常的**：EasyTier SOCKS5 只能访问虚拟网络内的设备，不是通用互联网代理，Clash 测速访问公网 URL 会超时
-- **TCP 通信**正常工作（SSH、HTTP、远程桌面等）
-- **UDP 通信**取决于 EasyTier 的 SOCKS5 是否支持 UDP ASSOCIATE
-- **ICMP/Ping 不可用**：SOCKS5 不支持 ICMP 协议，不能用 ping 测试连通性。请用 SSH、curl 等 TCP 工具测试
-- VPS 需要保持 Docker 容器运行，建议配置 `restart: unless-stopped`
+- **测速失败是正常的**：WireGuard 代理只能访问虚拟网络内的设备，不是通用互联网代理，Clash 测速访问公网 URL 会超时
+- **WireGuard 吞吐量略低于原生**：移动端（Stash/FlClash）使用用户空间 WireGuard 实现，加密/解密不走内核，吞吐量有一定损耗，但对内网访问场景完全够用
+- **ICMP/Ping 不可用**：通过 Clash WireGuard 代理时，ICMP 协议无法传输，不能用 ping 测试连通性。请用 SSH、curl 等 TCP 工具验证
+- VPS 需要保持 Docker 容器运行，建议配置 `restart: unless-stopped`（已默认开启）
 
 ## 服务器列表抓取工具
 
@@ -283,6 +287,9 @@ python3 scripts/fetch_servers.py --diff
 # 纯输出模式
 # 仅输出 URI 列表，方便复制到 EasyTier 配置或 docker-compose.yml
 python3 scripts/fetch_servers.py --raw
+
+# 自动更新 docker-compose.yml 中的 -p 参数
+python3 scripts/fetch_servers.py --update-compose
 ```
 
 ### 配合定时任务使用
@@ -296,31 +303,41 @@ python3 scripts/fetch_servers.py --raw
 
 ### Q: 手机上需要安装 EasyTier 吗？
 
-**不需要。** VPS 作为中转，手机通过 Clash 覆写规则访问 EasyTier 虚拟网络，完全不需要在手机上运行 EasyTier。
+**不需要。** VPS 作为中转，手机通过 Clash WireGuard 代理节点访问 EasyTier 虚拟网络，完全不需要在手机上运行 EasyTier。
 
 ### Q: 测速显示 Proxy-EasyTier 超时/失败？
 
-**正常。** EasyTier SOCKS5 只能访问虚拟网络（10.126.126.0/24），不能访问公网测速 URL。只要能通过 SSH/curl 访问虚拟网络内的设备就说明工作正常。
+**正常。** WireGuard 代理只能访问虚拟网络（10.126.126.0/24），不能访问公网测速 URL。只要能通过 SSH/curl 访问虚拟网络内的设备就说明工作正常。
 
 ### Q: 为什么不在手机上直接跑 EasyTier？
 
-iOS 上 EasyTier 切后台后会被系统挂起，SOCKS5 停止响应。且 Stash 的 VPN 隧道会干扰 EasyTier 的组网通信。详见 [问题背景](#为什么不能在手机上同时跑)。
+iOS 上 EasyTier 切后台后会被系统挂起，且 Stash 的 VPN 隧道会干扰 EasyTier 的组网通信。详见[问题背景](#为什么不能在手机上同时跑)。
 
-### Q: VPS 的 SOCKS5 安全吗？
+### Q: 多台设备如何分配 IP？
 
-EasyTier 的 SOCKS5 **不支持认证**。务必配置防火墙限制访问端口。详见 [安全加固](#6-安全加固)。
+每台设备需要使用不同的 `ip`（VPN Portal 地址段 `10.14.14.0/24` 内的不同地址）。目前三套客户端配置分别预置了：
 
-### Q: 通过 SOCKS5 访问内网的 HTTP 服务很卡？
+- Stash（iOS）：`10.14.14.1`
+- FlClash（Android）：`10.14.14.2`
+- standalone：`10.14.14.3`
 
-这是 SOCKS5 的固有局限。浏览器加载一个页面需要几十个 HTTP 请求，每个请求都要走完整的 SOCKS5 握手 + TCP 握手，延迟叠加后会卡到无法使用。解决方案是在 VPS 上加 [nginx 反向代理](#7-http-服务反向代理可选)，绕过 SOCKS5。
+如果你有多台同类型设备，复制配置文件并手动修改 `ip` 字段即可。
+
+### Q: WireGuard 需要限制防火墙来源 IP 吗？
+
+不需要。WireGuard 内置密钥认证，没有对应私钥的握手请求会直接被丢弃，不会建立连接。开放 UDP 11013 端口就够了。
+
+### Q: `easytier-cli vpn-portal` 没有输出客户端配置？
+
+确认 EasyTier 已成功加入网络（`easytier-cli peer` 能看到其他节点）。如果容器刚启动，等待 10-20 秒再试。
 
 ## 参考资料
 
+- [EasyTier VPN Portal 文档](https://easytier.cn/guide/network/vpn-portal.html)
 - [EasyTier Web Console 自建文档](https://easytier.cn/en/guide/network/web-console.html#self-hosted-web-console)
 - [EasyTier GitHub](https://github.com/EasyTier/EasyTier)
 - [EasyTier Docker 部署文档](https://easytier.cn/en/guide/installation.html)
-- [EasyTier SOCKS5 文档](https://easytier.cn/en/guide/network/socks5.html)
-- [EasyTier Issue #1825](https://github.com/EasyTier/EasyTier/issues/1825)
+- [Mihomo WireGuard 代理文档](https://wiki.metacubex.one/en/config/proxies/wg/)
 - [Stash 覆写文档](https://stash.wiki/configuration/override)
 - [FlClash 覆写脚本教程](https://github.com/chen08209/FlClash/issues/1510)
 - [Astral 社区服务器列表](https://astral.fan/server-config/server-list/)

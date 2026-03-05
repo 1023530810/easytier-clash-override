@@ -23,7 +23,7 @@ services:
     command: >
       -d
       --vpn-portal wg://0.0.0.0:11013/10.14.14.0/24
---hostname vps-gateway
+      --hostname vps-gateway
       -w udp://127.0.0.1:22020/${ET_WEB_USERNAME}
       --machine-id vps-gateway
       -p tcp://8.148.29.206:11010
